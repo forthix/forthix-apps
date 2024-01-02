@@ -1,0 +1,193 @@
+["jira" "cache" "status-history" "atlaskit"] USE-MODULES
+
+"config" LOAD-SCREEN
+
+# ----- A little more config ------------------------------------------------------------------
+["parent_key"] VARIABLES   # A convenience variable to help with JQL construction
+: EXTRA-FIELDS           ["Assignee"];
+: PARENT-KEY>CHILD-JQL   (parent_key !) ["parent = " parent_key @] CONCAT;
+: EXTRA-CHILD-FIELDS     [];
+
+["app_data" "parent" "child" "ticket" "date" "key" "summary" "comment" "status" "field_key"] VARIABLES
+
+# ----- Utils -------------------------------------------------------------------------------
+: >STATUS       "Status" REC@ UPPERCASE;
+: >KEY          "key" REC@;
+: TICKET-LINK   (summary ! key !) A  ["href"  key @ jira.ISSUE-URL] <<PROP [ [ key @ ": " summary @ ] CONCAT ] . ;
+: |NON-NULL     ">BOOL" SELECT;
+: PMAP          20 !INTERPS MAP;
+: STATUS-KEY>APPEARANCE   [
+    ["new"            "new"]
+    ["indeterminate"  "inprogress"]
+    ["done"           "success"]
+] REC SWAP REC@ "unknown" DEFAULT;
+
+: date-DAYS-AGO   TODAY date @ SUBTRACT-DATES;
+: STATUS-KEY>COLOR   [
+    ["new"            "color.background.discovery.bold"]
+    ["indeterminate"  "color.background.information.bold"]
+    ["done"           "color.background.success.bold"]
+] REC SWAP REC@ "color.background.neutral" DEFAULT;
+
+: DATE>SHORT   DATE>STR "-" SPLIT 1 DROP "/" JOIN;
+: POPUP-XCSS   [ ["maxWidth"  "800px"]] REC atlaskit.XCSS;
+: SORT-BY-STATUS   ">STATUS STATUS>ORDER" !COMPARATOR SORT;
+
+# ----- Data -------------------------------------------------------------------------------
+: DATES              [MOST-RECENT-DATE  "DATE-INTERVAL -1 * ADD-DAYS" NUM-DATES 1 - <REPEAT] REVERSE;
+: TICKET>CHANGELOG   >KEY ["Status"] jira.CHANGELOG;
+: PARENT>CHILDREN    >KEY PARENT-KEY>CHILD-JQL ["Summary" "Due date" "Resolved" EXTRA-CHILD-FIELDS] FLATTEN UNIQUE  MAX-TICKETS jira.!MAX-RESULTS jira.SEARCH;
+: TICKET>COMMENTS    >KEY jira.COMMENTS;
+: <ADD-CHANGELOGS    DUP "TICKET>CHANGELOG" PMAP "'changelog' <REC!" ZIP-WITH;
+: <ADD-CHILDREN      DUP "PARENT>CHILDREN"  PMAP "'children'  <REC!" ZIP-WITH;
+: <ADD-COMMENTS      DUP "TICKET>COMMENTS"  PMAP "'comments'  <REC!" ZIP-WITH;
+: PARENT-TICKETS     PARENT-JQL ["Summary" "Status" EXTRA-FIELDS] FLATTEN UNIQUE jira.SEARCH MAX-TICKETS TAKE;
+: MAIN-REFRESH       PARENT-TICKETS <ADD-CHANGELOGS <ADD-CHILDREN <ADD-COMMENTS CONSOLE.LOG "parents" cache.CACHE!@ app_data !;
+@: PARENTS   [
+    [TRUE   "app_data @"]
+    [FALSE  "'parents' cache.CACHE@"]
+] REC app_data @ >BOOL REC@ INTERPRET MAX-TICKETS TAKE SORT-BY-STATUS;
+
+@: STATUS-BY-NAME    jira.PROJECT "project_statuses" REC@ "'statuses' REC@" MAP FLATTEN "name" BY-FIELD "'statusCategory' REC@" MAP;
+: STATUS>KEY         STATUS-BY-NAME SWAP REC@ 'key' REC@ "unknown" DEFAULT;
+
+: status-APPEARANCE   status @ STATUS>KEY STATUS-KEY>APPEARANCE;
+: STATUS>BADGE        (status !) atlaskit.Lozenge [["appearance"  status-APPEARANCE] ["isBold"  TRUE]] <<PROPS status @ .;
+
+# ----- ticket Words -------------------------------------------------------------------------------
+: ticket-SUMMARY          ticket @ "Summary" REC@;
+: ticket-KEY              ticket @ "key" REC@;
+: ticket-STATUS           ticket @ "Status" REC@;
+: ticket-STATUS-BADGE     ticket-STATUS STATUS>BADGE;
+: ticket-BADGED-SUMMARY   atlaskit.Inline ["space" "space.100"] <<PROP [ticket-STATUS-BADGE  ticket-KEY ticket-SUMMARY TICKET-LINK] .;
+
+# ----- parent Words -------------------------------------------------------------------------------
+: parent-KEY                parent @ "key" REC@;
+: parent-SUMMARY            parent @ "Summary" REC@;
+: parent-STATUS             parent @ "Status" REC@;
+: parent-CHILDREN           parent @ "children" REC@;
+: parent-BADGED-SUMMARY     (parent @ ticket !) ticket-BADGED-SUMMARY;
+: parent-COMMENTS           parent @ "comments" REC@;
+: parent-COMMENTS-BY-DATE   parent-COMMENTS DATES "DATE>INT" MAP  "'for_date' REC@ '-' '' REPLACE >INT" RANGE-BUCKETS;
+: parent/date-COMMENTS      parent-COMMENTS-BY-DATE date @ DATE>INT REC@ []  DEFAULT;
+: parent-CHANGELOG          parent @ 'changelog' REC@;
+: parent-STATUS-AS-OF       parent-CHANGELOG "Status" jira.FIELD-AS-OF;  # (date -- status)
+: parent/date-COLOR-AS-OF   date @ parent-STATUS-AS-OF STATUS>KEY STATUS-KEY>COLOR;
+: parent-DATE>STATUS-CHIP   (date !@) parent/date-COLOR-AS-OF parent @ status-history.STATUS-CHIP [
+    ["fcontent"    "(date ! parent !) parent/date-COMMENTS LENGTH"]
+    ["fmouseOver"  "(date ! parent !) parent/date-POPUP-CONTENT"]
+    ["fclick"      "(date ! parent !) parent/date-MODAL-CONTENT atlaskit.MODAL-CONTENT! atlaskit.SHOW-MODAL"]
+] <<PROPS;
+
+: parent/date-STATUS-BADGE   date @ parent-STATUS-AS-OF STATUS>BADGE;
+: parent/date-POPUP-ANNOTATIONS   atlaskit.Box [["padding" "space.100"]] <<PROPS [
+    H6 "Annotations" .
+    atlaskit.Stack ["space" "space.150"] <<PROP [parent/date-COMMENTS "COMMENT>ANNOTATION" MAP] .
+] .;
+
+: parent/date-ANNOTATIONS-SECTION  [
+    [TRUE   parent/date-POPUP-ANNOTATIONS]
+] REC parent/date-COMMENTS LENGTH 0 > REC@;
+
+: parent/date-POPUP-CONTENT   atlaskit.Stack ["xcss" POPUP-XCSS] <<PROP [
+    atlaskit.Box [["padding" "space.100"] ["backgroundColor" "color.background.neutral"]] <<PROPS [
+        H5 [date @ DATE>SHORT  " " MDASH " " parent/date-STATUS-BADGE " "  date-DAYS-AGO DAYS-AGO ].
+    ] .
+    atlaskit.Box [["padding" "space.100"]] <<PROPS [
+        P [(parent @ ticket !) ticket-KEY ticket-SUMMARY TICKET-LINK] .
+    ] .
+    parent/date-ANNOTATIONS-SECTION
+] .;
+
+: parent/date-MODAL-CONTENT   [
+    atlaskit.ModalHeader [ atlaskit.ModalTitle ["Annotations for " date @ DATE>SHORT  " " MDASH " "  (parent @ ticket !) ticket-KEY ticket-SUMMARY TICKET-LINK] . ].
+    atlaskit.ModalBody [
+        atlaskit.AnnotationEditor [["ticketKey" parent-KEY] ["forDate" date @] ["annotations" parent-COMMENTS] ["annotationTitle"  "Annotation for " date @ DATE>SHORT CONCAT]] <<PROPS
+        atlaskit.Stack ["space" "space.150"] <<PROP [parent/date-COMMENTS "COMMENT>ANNOTATION" MAP] .
+    ] .
+    atlaskit.ModalFooter [P " " .] .
+];
+
+# ----- child Words -------------------------------------------------------------------------------
+: child-DUE            child @ "Due date" REC@;
+: child-RESOLVED       child @ "Resolved" REC@;
+: child-DUE-INFO        [
+    [TRUE  ["Due: " child-DUE >DATE DATE>SHORT] CONCAT]
+    [FALSE  "No due date"]
+] REC child-DUE >BOOL REC@;
+
+: child-RESOLVED-LOZENGE   [
+    [TRUE  atlaskit.Lozenge ["appearance" "success"] <<PROP ["Resolved: " child-RESOLVED >DATE DATE>SHORT] CONCAT .]
+] REC child-RESOLVED >BOOL REC@;
+
+: child-DUE-LOZENGE   [
+    [TRUE   atlaskit.Lozenge [["appearance"  "removed"] ["isBold"  FALSE]] <<PROPS child-DUE-INFO .]
+    [FALSE  atlaskit.Lozenge child-DUE-INFO .]
+] REC child-DUE >DATE TODAY < child-RESOLVED NOT AND REC@;
+
+: child-STATUS-INFO      atlaskit.Inline ["space"  "space.100"] <<PROP [child-DUE-LOZENGE child-RESOLVED-LOZENGE] |NON-NULL .;
+: child-KEY              child @ "key" REC@;
+: child-SUMMARY          child @ "Summary" REC@;
+: child-BADGED-SUMMARY   (child @ ticket !) ticket-BADGED-SUMMARY;
+
+# ----- comment Words -------------------------------------------------------------------------------
+: comment-BODY           comment @ "renderedBody" REC@ RAW-HTML;
+: comment-TIME           comment @ "created" REC@ "." SPLIT 0 NTH "T" " @ " REPLACE;
+: comment-AUTHOR         comment @ ["author"  "displayName"] REC@;
+: comment-AUTHOR-IMAGE   comment @ ["author"  "avatarUrls" "32x32"] REC@;
+: comment-AVATAR         atlaskit.Avatar [
+      ["appearance"  "circle"]
+      ["src"  comment-AUTHOR-IMAGE]
+      ["size"  "small"]
+      ["name"  comment-AUTHOR]
+] <<PROPS;
+
+: comment-AUTHOR-HEADLINE    atlaskit.Inline [["alignBlock"  "center"] ["space" "space.025"]] <<PROPS [comment-AVATAR comment-AUTHOR ", " comment-TIME] . ;
+: COMMENT>ANNOTATION         (comment !) atlaskit.Box [comment-AUTHOR-HEADLINE comment-BODY] .;
+
+# ----- Main page -------------------------------------------------------------------------------
+: COLUMN-KEYS   ["Ticket" "Assignee" "history"];
+
+: HISTORY-HEADER   ["Status  from " DATES 0 NTH DATE>SHORT " to " DATES LAST DATE>SHORT " (" DATE-INTERVAL " day intervals)"] CONCAT;
+: KEY>HEADER   (key !) [
+    ["history"  HISTORY-HEADER]
+] REC key @ REC@ key @ DEFAULT;
+
+: KEY>WIDTHS   [
+    ["Ticket"   "700px"]
+    ["history"  "700px"]
+] REC SWAP REC@ "150px" DEFAULT;
+
+: parent-KEY>CONTENT   (field_key !) [
+    ["Ticket"   parent-BADGED-SUMMARY RENDER]
+    ["history"  atlaskit.Inline ["space" "space.025"] <<PROP [DATES "parent-DATE>STATUS-CHIP" MAP] .]
+] REC field_key @ REC@  parent @ field_key @ REC@ DEFAULT;
+
+: child-KEY>CONTENT   (field_key !) [
+    ["Ticket"   atlaskit.Stack ["space" "space.100"] <<PROP [child-BADGED-SUMMARY child-STATUS-INFO ] . ]
+] REC field_key @ REC@  child @ field_key @ REC@ DEFAULT;
+
+: PARENT>ITEM   (parent !) [
+    ["id"           parent-KEY]
+    ["hasChildren"  parent-CHILDREN LENGTH 0 >]
+    ["content"      COLUMN-KEYS "[SWAP DUP parent-KEY>CONTENT]" MAP REC]
+    ["children"     parent-CHILDREN "(child !) child-ITEM" MAP]
+] REC;
+
+: child-ITEM   [
+    ["id"           child-KEY]
+    ["hasChildren"  FALSE]
+    ["content"      COLUMN-KEYS "[SWAP DUP child-KEY>CONTENT]" MAP REC]
+] REC;
+
+: TABLE-ITEMS      PARENTS "PARENT>ITEM" MAP;
+
+: MAIN-PAGE   [
+    H2 ["Rino's " jira.PROJECT 'name' REC@ " Status History"] CONCAT .
+    atlaskit.TableTree [
+        ["headers" COLUMN-KEYS "KEY>HEADER" MAP]
+        ["columns" COLUMN-KEYS "atlaskit.TABLE-TREE-COLUMN" MAP]
+        ["columnWidths"  COLUMN-KEYS "KEY>WIDTHS" MAP]
+        ["items" TABLE-ITEMS]
+    ] <<PROPS
+];
