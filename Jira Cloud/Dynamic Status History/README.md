@@ -1,4 +1,4 @@
-# Status History App
+# Dynamic Status History App
 
 This app allows you to see the status history of a set of tickets. The status of each ticket
 is shown in a status chip for each date. Comments on tickets are grouped by date and treated
