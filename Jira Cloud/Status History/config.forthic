@@ -1,13 +1,13 @@
 # Used to determine the number of dates to show in the report
-: NUM-DATES          15;      # Number of dates in the status history
-: DATE-INTERVAL      2;       # Number of days between dates
-: MOST-RECENT-DATE   TODAY;   # The right-most date in the status history
+: NUM-DATES       15;      # Number of dates in the status history
+: DATE-INTERVAL   2;       # Number of days between dates
+: END-DATE        TODAY;   # The right-most date in the status history
 
 # The maximum number of tickets to show in the report (Click refresh button after changing this)
 : MAX-TICKETS   25;
 
 # The JQL used to find the parent tickets (Click refresh button after changing this)
-: PARENT-JQL   ["project = " jira.PROJECT-KEY " and issuetype=Story and updated >= -30d "] CONCAT;
+: PARENT-JQL   ["project = " jira.PROJECT-KEY " and issuetype=Story and updated >= -30d order by updated DESC"] CONCAT;
 
 # Used to order the tickets in the report by status
 : STATUS>ORDER   [
