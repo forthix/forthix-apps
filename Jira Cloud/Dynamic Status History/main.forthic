@@ -8,7 +8,7 @@
 : PARENT-KEY>CHILD-JQL   (parent_key !) ["parent = " parent_key @] CONCAT;
 : EXTRA-CHILD-FIELDS     [];
 
-["app_data" "parent" "child" "ticket" "date" "key" "summary" "comment" "status" "field_key"] VARIABLES
+["parent" "child" "ticket" "date" "key" "summary" "comment" "status" "field_key"] VARIABLES
 
 # ----- Utils -------------------------------------------------------------------------------
 : >STATUS       "Status" REC@ UPPERCASE;
@@ -32,29 +32,26 @@
 : DATE>SHORT   DATE>STR "-" SPLIT 1 DROP "/" JOIN;
 : POPUP-XCSS   [ ["maxWidth"  "800px"]] REC atlaskit.XCSS;
 : SORT-BY-STATUS   ">STATUS STATUS>ORDER" !COMPARATOR SORT;
+: JIRA-SEARCH   MAX-TICKETS jira.!MAX-RESULTS jira.SEARCH MAX-TICKETS TAKE;
 
 # ----- Data -------------------------------------------------------------------------------
-: DATES              [MOST-RECENT-DATE  "DATE-INTERVAL -1 * ADD-DAYS" NUM-DATES 1 - <REPEAT] REVERSE;
+: DATES              [END-DATE  "DATE-INTERVAL -1 * ADD-DAYS" NUM-DATES 1 - <REPEAT] REVERSE;
 : TICKET>CHANGELOG   >KEY ["Status"] jira.CHANGELOG;
-: PARENT>CHILDREN    >KEY PARENT-KEY>CHILD-JQL ["Summary" "Due date" "Resolved" EXTRA-CHILD-FIELDS] FLATTEN UNIQUE  MAX-TICKETS jira.!MAX-RESULTS jira.SEARCH;
+: PARENT>CHILDREN    >KEY PARENT-KEY>CHILD-JQL ["Summary" "Due date" "Resolved" EXTRA-CHILD-FIELDS] FLATTEN UNIQUE  JIRA-SEARCH;
 : TICKET>COMMENTS    >KEY jira.COMMENTS;
 : <ADD-CHANGELOGS    DUP "TICKET>CHANGELOG" PMAP "'changelog' <REC!" ZIP-WITH;
 : <ADD-CHILDREN      DUP "PARENT>CHILDREN"  PMAP "'children'  <REC!" ZIP-WITH;
 : <ADD-COMMENTS      DUP "TICKET>COMMENTS"  PMAP "'comments'  <REC!" ZIP-WITH;
-: PARENT-TICKETS     PARENT-JQL ["Summary" "Status" EXTRA-FIELDS] FLATTEN UNIQUE jira.SEARCH MAX-TICKETS TAKE;
-: MAIN-REFRESH       PARENT-TICKETS <ADD-CHANGELOGS <ADD-CHILDREN <ADD-COMMENTS CONSOLE.LOG "parents" cache.CACHE!@ app_data !;
-@: PARENTS   [
-    [TRUE   "app_data @"]
-    [FALSE  "'parents' cache.CACHE@"]
-] REC app_data @ >BOOL REC@ INTERPRET MAX-TICKETS TAKE SORT-BY-STATUS;
-
+: PARENT-TICKETS     PARENT-JQL ["Summary" "Status" EXTRA-FIELDS] FLATTEN UNIQUE JIRA-SEARCH;
+: MAIN-REFRESH       PARENT-TICKETS <ADD-CHANGELOGS <ADD-CHILDREN <ADD-COMMENTS CONSOLE.LOG "parents" cache.CACHE!;
+@: PARENTS           'parents' cache.CACHE@ MAX-TICKETS TAKE SORT-BY-STATUS;
 @: STATUS-BY-NAME    jira.PROJECT "project_statuses" REC@ "'statuses' REC@" MAP FLATTEN "name" BY-FIELD "'statusCategory' REC@" MAP;
-: STATUS>KEY         STATUS-BY-NAME SWAP REC@ 'key' REC@ "unknown" DEFAULT;
 
-: status-APPEARANCE   status @ STATUS>KEY STATUS-KEY>APPEARANCE;
-: STATUS>BADGE        (status !) atlaskit.Lozenge [["appearance"  status-APPEARANCE] ["isBold"  TRUE]] <<PROPS status @ .;
 
 # ----- ticket Words -------------------------------------------------------------------------------
+: STATUS>KEY         STATUS-BY-NAME SWAP REC@ 'key' REC@ "unknown" DEFAULT;
+: status-APPEARANCE   status @ STATUS>KEY STATUS-KEY>APPEARANCE;
+: STATUS>BADGE        (status !) atlaskit.Lozenge [["appearance"  status-APPEARANCE] ["isBold"  TRUE]] <<PROPS status @ .;
 : ticket-SUMMARY          ticket @ "Summary" REC@;
 : ticket-KEY              ticket @ "key" REC@;
 : ticket-STATUS           ticket @ "Status" REC@;
@@ -145,7 +142,7 @@
 : comment-AUTHOR-HEADLINE    atlaskit.Inline [["alignBlock"  "center"] ["space" "space.025"]] <<PROPS [comment-AVATAR comment-AUTHOR ", " comment-TIME] . ;
 : COMMENT>ANNOTATION         (comment !) atlaskit.Box [comment-AUTHOR-HEADLINE comment-BODY] .;
 
-# ----- Main page -------------------------------------------------------------------------------
+# ----- Tickets Table -------------------------------------------------------------------------------
 : COLUMN-KEYS   ["Ticket" "Assignee" "history"];
 
 : HISTORY-HEADER   ["Status  from " DATES 0 NTH DATE>SHORT " to " DATES LAST DATE>SHORT " (" DATE-INTERVAL " day intervals)"] CONCAT;
@@ -182,12 +179,15 @@
 
 : TABLE-ITEMS      PARENTS "PARENT>ITEM" MAP;
 
+: TICKETS-TABLE   atlaskit.TableTree [
+    ["headers" COLUMN-KEYS "KEY>HEADER" MAP]
+    ["columns" COLUMN-KEYS "atlaskit.TABLE-TREE-COLUMN" MAP]
+    ["columnWidths"  COLUMN-KEYS "KEY>WIDTHS" MAP]
+    ["items" TABLE-ITEMS]
+] <<PROPS;
+
+# ----- Main page -------------------------------------------------------------------------------
 : MAIN-PAGE   [
-    H2 ["Rino's " jira.PROJECT 'name' REC@ " Status History"] CONCAT .
-    atlaskit.TableTree [
-        ["headers" COLUMN-KEYS "KEY>HEADER" MAP]
-        ["columns" COLUMN-KEYS "atlaskit.TABLE-TREE-COLUMN" MAP]
-        ["columnWidths"  COLUMN-KEYS "KEY>WIDTHS" MAP]
-        ["items" TABLE-ITEMS]
-    ] <<PROPS
+    H2 [jira.PROJECT 'name' REC@ " Status History"] CONCAT .
+    TICKETS-TABLE
 ];
