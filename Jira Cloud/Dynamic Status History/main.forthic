@@ -4,11 +4,11 @@
 
 # ----- A little more config ------------------------------------------------------------------
 ["parent_key"] VARIABLES   # A convenience variable to help with JQL construction
-: EXTRA-FIELDS           ["Assignee"];
+: EXTRA-FIELDS           ["Assignee" "Parent"];
 : PARENT-KEY>CHILD-JQL   (parent_key !) ["parent = " parent_key @] CONCAT;
 : EXTRA-CHILD-FIELDS     [];
 
-["parent" "child" "ticket" "date" "key" "summary" "comment" "status" "field_key"] VARIABLES
+["parent" "child" "ticket" "date" "key" "summary" "comment" "status" "field_key" "tickets"] VARIABLES
 
 # ----- Utils -------------------------------------------------------------------------------
 : >STATUS       "Status" REC@ UPPERCASE;
@@ -33,6 +33,10 @@
 : POPUP-XCSS   [ ["maxWidth"  "800px"]] REC atlaskit.XCSS;
 : SORT-BY-STATUS   ">STATUS STATUS>ORDER" !COMPARATOR SORT;
 : JIRA-SEARCH   MAX-TICKETS jira.!MAX-RESULTS jira.SEARCH MAX-TICKETS TAKE;
+: ticket-PARENT   ticket @ "Parent" REC@;
+@: tickets-KEYS     tickets @ ">KEY" MAP;
+: ticket/tickets-IS-ROOT   ticket-PARENT tickets-KEYS IN NOT;
+: |ROOT-TICKETS   (tickets !@) "(ticket !) ticket/tickets-IS-ROOT" SELECT;
 
 # ----- Data -------------------------------------------------------------------------------
 : DATES              [END-DATE  "DATE-INTERVAL -1 * ADD-DAYS" NUM-DATES 1 - <REPEAT] REVERSE;
@@ -44,7 +48,7 @@
 : <ADD-COMMENTS      DUP "TICKET>COMMENTS"  PMAP "'comments'  <REC!" ZIP-WITH;
 : PARENT-TICKETS     PARENT-JQL ["Summary" "Status" EXTRA-FIELDS] FLATTEN UNIQUE JIRA-SEARCH;
 : MAIN-REFRESH       PARENT-TICKETS <ADD-CHANGELOGS <ADD-CHILDREN <ADD-COMMENTS CONSOLE.LOG "parents" cache.CACHE!;
-@: PARENTS           'parents' cache.CACHE@ MAX-TICKETS TAKE SORT-BY-STATUS;
+@: PARENTS           'parents' cache.CACHE@ |ROOT-TICKETS MAX-TICKETS TAKE SORT-BY-STATUS;
 @: STATUS-BY-NAME    jira.PROJECT "project_statuses" REC@ "'statuses' REC@" MAP FLATTEN "name" BY-FIELD "'statusCategory' REC@" MAP;
 
 
@@ -188,6 +192,7 @@
 
 # ----- Main page -------------------------------------------------------------------------------
 : MAIN-PAGE   [
-    H2 [jira.PROJECT 'name' REC@ " Status History"] CONCAT .
+    TITLE
     TICKETS-TABLE
 ];
+Í

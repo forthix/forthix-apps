@@ -7,7 +7,7 @@
 : MAX-TICKETS   25;
 
 # The JQL used to find the parent tickets (Click refresh button after changing this)
-: PARENT-JQL   ["project = " jira.PROJECT-KEY " and issuetype=Story and updated >= -30d order by updated DESC"] CONCAT;
+: PARENT-JQL   ["project = " jira.PROJECT-KEY " and updated >= -30d order by updated DESC"] CONCAT;
 
 # Used to order the tickets in the report by status
 : STATUS>ORDER   [
@@ -16,3 +16,6 @@
     ["DONE"         3]
     ["TO DO"        4]
 ] REC SWAP UPPERCASE REC@ 100 DEFAULT;
+
+# Title of report
+: TITLE   H2 [jira.PROJECT 'name' REC@ " Dynamic Status History"] CONCAT .;
