@@ -13,7 +13,7 @@
 # ----- Utils -------------------------------------------------------------------------------
 : >STATUS       "Status" REC@ UPPERCASE;
 : >KEY          "key" REC@;
-: TICKET-LINK   (summary ! key !) A  ["href"  key @ jira.ISSUE-URL] <<PROP [ [ key @ ": " summary @ ] CONCAT ] . ;
+: TICKET-LINK   (summary ! key !) A  [["onClick"  key @ jira.ISSUE-URL FOPEN] ["href" "#"]] <<PROPS [ [ key @ ": " summary @ ] CONCAT ] . ;
 : |NON-NULL     ">BOOL" SELECT;
 : PMAP          20 !INTERPS MAP;
 : STATUS-KEY>APPEARANCE   [
@@ -31,24 +31,26 @@
 
 : DATE>SHORT   DATE>STR "-" SPLIT 1 DROP "/" JOIN;
 : POPUP-XCSS   [ ["maxWidth"  "800px"]] REC atlaskit.XCSS;
-: SORT-BY-STATUS   ">STATUS STATUS>ORDER" !COMPARATOR SORT;
+: |SORT-BY-STATUS   ">STATUS STATUS>ORDER" !COMPARATOR SORT;
 : JIRA-SEARCH   MAX-TICKETS jira.!MAX-RESULTS jira.SEARCH MAX-TICKETS TAKE;
 : ticket-PARENT   ticket @ "Parent" REC@;
 @: tickets-KEYS     tickets @ ">KEY" MAP;
 : ticket/tickets-IS-ROOT   ticket-PARENT tickets-KEYS IN NOT;
 : |ROOT-TICKETS   (tickets !@) "(ticket !) ticket/tickets-IS-ROOT" SELECT;
+: |SORT-BY-DUE   "'Due date' REC@" !COMPARATOR SORT;
 
 # ----- Data -------------------------------------------------------------------------------
 : DATES              [END-DATE  "DATE-INTERVAL -1 * ADD-DAYS" NUM-DATES 1 - <REPEAT] REVERSE;
 : TICKET>CHANGELOG   >KEY ["Status"] jira.CHANGELOG;
 : PARENT>CHILDREN    >KEY PARENT-KEY>CHILD-JQL ["Summary" "Due date" "Resolved" EXTRA-CHILD-FIELDS] FLATTEN UNIQUE  JIRA-SEARCH;
 : TICKET>COMMENTS    >KEY jira.COMMENTS;
-: <ADD-CHANGELOGS    DUP "TICKET>CHANGELOG" PMAP "'changelog' <REC!" ZIP-WITH;
-: <ADD-CHILDREN      DUP "PARENT>CHILDREN"  PMAP "'children'  <REC!" ZIP-WITH;
-: <ADD-COMMENTS      DUP "TICKET>COMMENTS"  PMAP "'comments'  <REC!" ZIP-WITH;
+: <ADD-CHANGELOGS    DUP "TICKET>CHANGELOG" "Processing changelogs" !NOTE-PROGRESS PMAP "'changelog' <REC!" ZIP-WITH;
+: <ADD-CHILDREN      DUP "PARENT>CHILDREN"  "Processing child tickets" !NOTE-PROGRESS PMAP "'children'  <REC!" ZIP-WITH;
+: <ADD-COMMENTS      DUP "TICKET>COMMENTS"  "Processing comments" !NOTE-PROGRESS PMAP "'comments'  <REC!" ZIP-WITH;
+
 : PARENT-TICKETS     PARENT-JQL ["Summary" "Status" EXTRA-FIELDS] FLATTEN UNIQUE JIRA-SEARCH;
 : MAIN-REFRESH       PARENT-TICKETS <ADD-CHANGELOGS <ADD-CHILDREN <ADD-COMMENTS CONSOLE.LOG "parents" cache.CACHE!;
-@: PARENTS           'parents' cache.CACHE@ |ROOT-TICKETS MAX-TICKETS TAKE SORT-BY-STATUS;
+@: PARENTS           'parents' cache.CACHE@ |ROOT-TICKETS MAX-TICKETS TAKE |SORT-BY-STATUS;
 @: STATUS-BY-NAME    jira.PROJECT "project_statuses" REC@ "'statuses' REC@" MAP FLATTEN "name" BY-FIELD "'statusCategory' REC@" MAP;
 
 
@@ -66,7 +68,7 @@
 : parent-KEY                parent @ "key" REC@;
 : parent-SUMMARY            parent @ "Summary" REC@;
 : parent-STATUS             parent @ "Status" REC@;
-: parent-CHILDREN           parent @ "children" REC@;
+: parent-CHILDREN           parent @ "children" REC@ |SORT-BY-DUE;
 : parent-BADGED-SUMMARY     (parent @ ticket !) ticket-BADGED-SUMMARY;
 : parent-COMMENTS           parent @ "comments" REC@;
 : parent-COMMENTS-BY-DATE   parent-COMMENTS DATES "DATE>INT" MAP  "'for_date' REC@ '-' '' REPLACE >INT" RANGE-BUCKETS;
@@ -195,4 +197,3 @@
     TITLE
     TICKETS-TABLE
 ];
-Í
